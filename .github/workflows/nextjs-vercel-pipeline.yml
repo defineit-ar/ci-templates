@@ -1,0 +1,96 @@
+name: Next.js + Vercel pipeline
+
+on:
+  workflow_call:
+    inputs:
+      environment:
+        description: "GitHub Environment gating the deploy job (e.g. staging, production). Configure required reviewers on this Environment in the calling repo to make deploy manual."
+        required: true
+        type: string
+      working_directory:
+        description: "Path to the Next.js app within the calling repo"
+        required: false
+        type: string
+        default: "."
+      node_version:
+        required: false
+        type: string
+        default: "22"
+      pnpm_version:
+        required: false
+        type: string
+        default: "9"
+    secrets:
+      deploy_hook_url:
+        description: "Vercel Deploy Hook URL for this branch/environment"
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ inputs.pnpm_version }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ inputs.node_version }}
+          cache: pnpm
+          cache-dependency-path: ${{ inputs.working_directory }}/pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+        working-directory: ${{ inputs.working_directory }}
+      - run: pnpm lint
+        working-directory: ${{ inputs.working_directory }}
+
+  typecheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ inputs.pnpm_version }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ inputs.node_version }}
+          cache: pnpm
+          cache-dependency-path: ${{ inputs.working_directory }}/pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+        working-directory: ${{ inputs.working_directory }}
+      - run: pnpm exec tsc --noEmit
+        working-directory: ${{ inputs.working_directory }}
+
+  build:
+    needs: [lint, typecheck]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ inputs.pnpm_version }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ inputs.node_version }}
+          cache: pnpm
+          cache-dependency-path: ${{ inputs.working_directory }}/pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+        working-directory: ${{ inputs.working_directory }}
+      - run: pnpm build
+        working-directory: ${{ inputs.working_directory }}
+
+  # Gated by the GitHub Environment named in `inputs.environment`. Configure
+  # "Required reviewers" on that Environment (repo Settings > Environments)
+  # to turn this into a manual approval step, regardless of who pushed.
+  deploy:
+    needs: [build]
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    concurrency:
+      group: deploy-${{ inputs.environment }}-${{ github.repository }}
+      cancel-in-progress: false
+    steps:
+      - name: Trigger Vercel Deploy Hook
+        run: curl --fail --silent --show-error -X POST "${{ secrets.deploy_hook_url }}"
