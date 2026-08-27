@@ -50,9 +50,24 @@ jobs:
 1. **Vercel** (necesita permisos de Owner/Developer en el proyecto):
    - Project Settings → Git → Deploy Hooks: crear uno por branch (`main`,
      `staging`).
-   - Project Settings → Build and Deployment → Ignored Build Step: configurar
-     para que el auto-deploy nativo de Git no dispare en esos branches (el
-     Deploy Hook pasa a ser el único camino de deploy real).
+   - **No usar "Ignored Build Step"** para desactivar el auto-deploy nativo:
+     está documentado que si se configura en "Don't build anything" también
+     bloquea los deploys disparados por Deploy Hook, no solo los de push
+     automático. En su lugar, agregar un `vercel.json` en el repo del
+     proyecto:
+     ```json
+     {
+       "git": {
+         "deploymentEnabled": {
+           "main": false,
+           "staging": false
+         }
+       }
+     }
+     ```
+     Esto apaga el auto-deploy de git solo para esos branches sin afectar
+     los Deploy Hooks, y no requiere permisos especiales en Vercel (es un
+     archivo del repo).
 2. **GitHub, Secrets** (repo Settings → Secrets and variables → Actions):
    - `VERCEL_DEPLOY_HOOK_STAGING`
    - `VERCEL_DEPLOY_HOOK_PRODUCTION`
