@@ -38,9 +38,16 @@
 # segundo. Corregido agregando el input `pnpm_version` (mismo default que
 # nextjs-checks.yml).
 #
-# Sigue sin confirmarse en la practica la combinacion `--target=<nombre>` de
-# `vercel deploy` con un custom environment (`staging`, no el `preview` por
-# defecto) -- eso todavia no se probo de punta a punta.
+# ## Tercer intento (2026-08-28): mismatch de environment en el prebuilt
+#
+# `Error: The "--prebuilt" option was used with the target environment
+# "staging", but the prebuilt output found in ".vercel/output" was built with
+# target environment "preview".`
+#
+# Confirma la duda que quedaba pendiente: `vercel build` NO hereda el
+# `--environment` de `vercel pull` -- sin `--target` explicito, buildea para
+# `preview` sin importar que environment se haya pulleado. Corregido
+# pasandole `--target` tambien al build, no solo al deploy.
 
 name: Vercel CLI deploy
 
@@ -134,7 +141,7 @@ jobs:
           if [ "${{ inputs.environment }}" = "production" ]; then
             vercel build --prod
           else
-            vercel build
+            vercel build --target="${{ inputs.environment }}"
           fi
 
       - name: Deploy
