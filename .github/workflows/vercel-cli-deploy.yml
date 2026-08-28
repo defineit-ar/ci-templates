@@ -31,6 +31,13 @@
 # que ya tenia resuelto el deploy de fibbra a Vercel; se me paso copiarlo acá
 # la primera vez. Corregido agregando ese paso antes del setup de Node.
 #
+# ## Segundo intento (2026-08-28): fallo en pnpm/action-setup
+#
+# `Error: No pnpm version is specified.` La action necesita `version:`
+# explicito o un `packageManager` en package.json -- my-turn no tiene lo
+# segundo. Corregido agregando el input `pnpm_version` (mismo default que
+# nextjs-checks.yml).
+#
 # Sigue sin confirmarse en la practica la combinacion `--target=<nombre>` de
 # `vercel deploy` con un custom environment (`staging`, no el `preview` por
 # defecto) -- eso todavia no se probo de punta a punta.
@@ -62,6 +69,11 @@ on:
         required: false
         type: string
         default: "latest"
+      pnpm_version:
+        description: "Version de pnpm, para que vercel build pueda instalar dependencias"
+        required: false
+        type: string
+        default: "9"
     secrets:
       vercel_token:
         description: "Vercel Personal Access Token. Scopearlo al proyecto (vercel tokens add \"nombre\" --project prj_...), no a toda la cuenta."
@@ -96,6 +108,8 @@ jobs:
       # my-turn (2026-08-28), y es el mismo detalle que ya tenía resuelto el
       # deploy de fibbra a Vercel.
       - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ inputs.pnpm_version }}
       - uses: actions/setup-node@v4
         with:
           node-version: 22

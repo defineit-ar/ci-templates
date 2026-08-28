@@ -176,6 +176,7 @@ jobs:
 | `vercel_org_id` | *(requerido)* | Team/org ID de Vercel (no es secreto) |
 | `vercel_project_id` | *(requerido)* | Project ID de Vercel (no es secreto) |
 | `vercel_cli_version` | `latest` | Versión del paquete `vercel` |
+| `pnpm_version` | `9` | Versión de pnpm, para que `vercel build` pueda instalar dependencias |
 
 | Secret | Descripción |
 |---|---|
