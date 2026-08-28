@@ -1,29 +1,31 @@
-name: Next.js + Vercel pipeline
+# Verificaciones de una app Next.js. No deploya nada.
+#
+# Está separado del deploy a propósito. Cuando los dos vivían en el mismo
+# workflow, encadenados por `needs`, el deploy heredaba el trigger de los
+# checks: si los checks corrían al pushear, el deploy también. Y el objetivo
+# era el contrario — que el deploy lo dispare una persona, no un push.
+#
+# Ver `vercel-deploy-hook.yml` para el deploy.
+
+name: Next.js checks
 
 on:
   workflow_call:
     inputs:
-      environment:
-        description: "GitHub Environment gating the deploy job (e.g. staging, production). Configure required reviewers on this Environment in the calling repo to make deploy manual."
-        required: true
-        type: string
       working_directory:
-        description: "Path to the Next.js app within the calling repo"
+        description: "Path a la app Next.js dentro del repo llamador"
         required: false
         type: string
         default: "."
       node_version:
+        description: "Versión de Node. Conviene que coincida con la que usa Vercel para buildear el proyecto, si no el CI puede pasar sobre un build que Vercel rechaza (o al revés)."
         required: false
         type: string
-        default: "22"
+        default: "24"
       pnpm_version:
         required: false
         type: string
         default: "9"
-    secrets:
-      deploy_hook_url:
-        description: "Vercel Deploy Hook URL for this branch/environment"
-        required: true
 
 permissions:
   contents: read
@@ -63,6 +65,13 @@ jobs:
       - run: pnpm exec tsc --noEmit
         working-directory: ${{ inputs.working_directory }}
 
+  # El build corre después de lint y typecheck: es el más caro de los tres y
+  # casi todo lo que lo rompe lo detectan ellos antes y más rápido.
+  #
+  # Ojo con el entorno: este job no recibe las env vars del proyecto de Vercel.
+  # Si algún módulo se cae al evaluarse sin ellas, el build falla acá aunque
+  # en Vercel ande. La salida no es copiar las credenciales a GitHub, es que
+  # el módulo no las necesite hasta que alguien lo use.
   build:
     needs: [lint, typecheck]
     runs-on: ubuntu-latest
@@ -80,17 +89,3 @@ jobs:
         working-directory: ${{ inputs.working_directory }}
       - run: pnpm build
         working-directory: ${{ inputs.working_directory }}
-
-  # Gated by the GitHub Environment named in `inputs.environment`. Configure
-  # "Required reviewers" on that Environment (repo Settings > Environments)
-  # to turn this into a manual approval step, regardless of who pushed.
-  deploy:
-    needs: [build]
-    runs-on: ubuntu-latest
-    environment: ${{ inputs.environment }}
-    concurrency:
-      group: deploy-${{ inputs.environment }}-${{ github.repository }}
-      cancel-in-progress: false
-    steps:
-      - name: Trigger Vercel Deploy Hook
-        run: curl --fail --silent --show-error -X POST "${{ secrets.deploy_hook_url }}"
