@@ -23,16 +23,17 @@
 # suficiente en el team (Owner/Developer), el deploy sale sin importar quien
 # mergeo el ultimo commit.
 #
-# ## Sin verificar todavia
+# ## Primer intento real (2026-08-28): fallo en el paso Build
 #
-# Esto no se probo de punta a punta contra un deployment real (bloqueado en
-# conseguir el token). La secuencia pull -> build -> deploy --prebuilt es la
-# que documenta Vercel para CI/CD, y `--target=<nombre>` para custom
-# environments tambien es de la doc oficial, pero la combinacion de las dos
-# cosas junto con un custom environment (`staging`, no `preview`) no esta
-# confirmada en la practica. Si el primer run falla, empezar mirando si
-# `vercel build` necesita su propio flag de environment ademas de heredarlo
-# de `vercel pull` (no encontre uno documentado, pero puede que exista).
+# `Error: spawn pnpm ENOENT`. `vercel build` corre en este runner y, como el
+# proyecto usa pnpm, intenta correr `pnpm install` el solo -- sin
+# `pnpm/action-setup` antes, el binario no existe en el PATH. Mismo detalle
+# que ya tenia resuelto el deploy de fibbra a Vercel; se me paso copiarlo acá
+# la primera vez. Corregido agregando ese paso antes del setup de Node.
+#
+# Sigue sin confirmarse en la practica la combinacion `--target=<nombre>` de
+# `vercel deploy` con un custom environment (`staging`, no el `preview` por
+# defecto) -- eso todavia no se probo de punta a punta.
 
 name: Vercel CLI deploy
 
@@ -87,9 +88,19 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # `vercel build` corre en ESTE runner, no en un contenedor de Vercel: es
+      # el que trae el prebuilt para `deploy --prebuilt`. Como el proyecto usa
+      # pnpm, `vercel build` intenta correr `pnpm install` internamente, y sin
+      # este paso el binario no existe en el PATH -- `Error: spawn pnpm
+      # ENOENT`. Confirmado así en el primer run real de este workflow contra
+      # my-turn (2026-08-28), y es el mismo detalle que ya tenía resuelto el
+      # deploy de fibbra a Vercel.
+      - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+          cache: pnpm
+          cache-dependency-path: ${{ inputs.working_directory }}/pnpm-lock.yaml
 
       - name: Instalar Vercel CLI
         run: npm install --global vercel@${{ inputs.vercel_cli_version }}
