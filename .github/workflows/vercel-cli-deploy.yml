@@ -1,0 +1,124 @@
+# Deploy a Vercel por CLI, autenticado con un Personal Access Token.
+#
+# ## Por que no es un Deploy Hook
+#
+# La version anterior de este workflow (`vercel-deploy-hook.yml`) hacia un
+# `curl -X POST` al Deploy Hook de Vercel. Se descarto: un Deploy Hook sigue
+# creando un deployment con `source: git`, atado al commit HEAD de la rama en
+# ese momento -- Vercel resuelve el permiso contra el rol del AUTOR DE ESE
+# COMMIT en el team, no contra quien (o que) llamo al hook.
+#
+# Verificado en my-turn el 2026-08-28: el hook de staging respondio HTTP 201
+# (aceptado) pero el deployment resultante quedo en `BLOCKED`, cero build
+# logs, con errorLink al doc de troubleshooting de "team-configuration" de
+# Vercel. El commit en HEAD de staging en ese momento era de un miembro con
+# rol Viewer en el team, y el deploy se bloqueo por eso -- exactamente lo que
+# el mecanismo de Deploy Hook se suponia que iba a esquivar.
+#
+# ## Por que esto si funciona
+#
+# `vercel deploy --prebuilt` sube archivos directamente (`source: cli`, sin
+# `gitSource`): no hay commit-author que resolver. El permiso lo define el
+# Personal Access Token: si el token pertenece a una cuenta con rol
+# suficiente en el team (Owner/Developer), el deploy sale sin importar quien
+# mergeo el ultimo commit.
+#
+# ## Sin verificar todavia
+#
+# Esto no se probo de punta a punta contra un deployment real (bloqueado en
+# conseguir el token). La secuencia pull -> build -> deploy --prebuilt es la
+# que documenta Vercel para CI/CD, y `--target=<nombre>` para custom
+# environments tambien es de la doc oficial, pero la combinacion de las dos
+# cosas junto con un custom environment (`staging`, no `preview`) no esta
+# confirmada en la practica. Si el primer run falla, empezar mirando si
+# `vercel build` necesita su propio flag de environment ademas de heredarlo
+# de `vercel pull` (no encontre uno documentado, pero puede que exista).
+
+name: Vercel CLI deploy
+
+on:
+  workflow_call:
+    inputs:
+      environment:
+        description: "Target de Vercel: 'production', o el nombre de un custom environment (ej. staging). Tambien nombra el GitHub Environment donde se registra el deploy."
+        required: true
+        type: string
+      working_directory:
+        description: "Path a la app dentro del repo llamador"
+        required: false
+        type: string
+        default: "."
+      vercel_org_id:
+        description: "Team/org ID de Vercel (no es secreto, empieza con team_)"
+        required: true
+        type: string
+      vercel_project_id:
+        description: "Project ID de Vercel (no es secreto, empieza con prj_)"
+        required: true
+        type: string
+      vercel_cli_version:
+        description: "Version del paquete `vercel` a instalar"
+        required: false
+        type: string
+        default: "latest"
+    secrets:
+      vercel_token:
+        description: "Vercel Personal Access Token. Scopearlo al proyecto (vercel tokens add \"nombre\" --project prj_...), no a toda la cuenta."
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    # Un deploy por environment a la vez.
+    concurrency:
+      group: deploy-${{ inputs.environment }}-${{ github.repository }}
+      cancel-in-progress: false
+    env:
+      VERCEL_ORG_ID: ${{ inputs.vercel_org_id }}
+      VERCEL_PROJECT_ID: ${{ inputs.vercel_project_id }}
+      VERCEL_TOKEN: ${{ secrets.vercel_token }}
+    defaults:
+      run:
+        working-directory: ${{ inputs.working_directory }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Instalar Vercel CLI
+        run: npm install --global vercel@${{ inputs.vercel_cli_version }}
+
+      # `vercel build` va a leer lo que esta pull deje en `.vercel/`, asi que
+      # el environment se define aca, no en el build.
+      - name: Traer configuracion y variables de entorno del proyecto
+        run: |
+          if [ "${{ inputs.environment }}" = "production" ]; then
+            vercel pull --yes --environment=production
+          else
+            vercel pull --yes --environment="${{ inputs.environment }}"
+          fi
+
+      - name: Build
+        run: |
+          if [ "${{ inputs.environment }}" = "production" ]; then
+            vercel build --prod
+          else
+            vercel build
+          fi
+
+      - name: Deploy
+        id: deploy
+        run: |
+          if [ "${{ inputs.environment }}" = "production" ]; then
+            url=$(vercel deploy --prebuilt --prod)
+          else
+            url=$(vercel deploy --prebuilt --target="${{ inputs.environment }}")
+          fi
+          echo "url=$url" >> "$GITHUB_OUTPUT"
+          echo "::notice::Deploy listo: $url"
