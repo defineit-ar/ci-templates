@@ -26,13 +26,18 @@ on:
         required: false
         type: string
         default: "9"
+      runs_on:
+        description: "Label del runner. Default `ubuntu-latest` (GitHub-hosted). Los repos de la org defineit-ar pueden pasar `ubicloud-standard-2` para correr en Ubicloud. No pasarlo desde repos fuera de la org: ahi la app de Ubicloud no esta instalada y el job queda en cola para siempre."
+        required: false
+        type: string
+        default: "ubuntu-latest"
 
 permissions:
   contents: read
 
 jobs:
   lint:
-    runs-on: ubuntu-latest
+    runs-on: ${{ inputs.runs_on }}
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -49,7 +54,7 @@ jobs:
         working-directory: ${{ inputs.working_directory }}
 
   typecheck:
-    runs-on: ubuntu-latest
+    runs-on: ${{ inputs.runs_on }}
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -74,7 +79,7 @@ jobs:
   # el módulo no las necesite hasta que alguien lo use.
   build:
     needs: [lint, typecheck]
-    runs-on: ubuntu-latest
+    runs-on: ${{ inputs.runs_on }}
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
