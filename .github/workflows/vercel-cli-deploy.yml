@@ -81,6 +81,11 @@ on:
         required: false
         type: string
         default: "9"
+      runs_on:
+        description: "Label del runner. Default `ubuntu-latest` (GitHub-hosted). Los repos de la org defineit-ar pueden pasar `ubicloud-standard-2` para correr en Ubicloud. No pasarlo desde repos fuera de la org: ahi la app de Ubicloud no esta instalada y el job queda en cola para siempre."
+        required: false
+        type: string
+        default: "ubuntu-latest"
     secrets:
       vercel_token:
         description: "Vercel Personal Access Token. Scopearlo al proyecto (vercel tokens add \"nombre\" --project prj_...), no a toda la cuenta."
@@ -91,7 +96,7 @@ permissions:
 
 jobs:
   deploy:
-    runs-on: ubuntu-latest
+    runs-on: ${{ inputs.runs_on }}
     environment: ${{ inputs.environment }}
     # Un deploy por environment a la vez.
     concurrency:
