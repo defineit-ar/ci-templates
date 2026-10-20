@@ -34,20 +34,28 @@ es pagar por información que nadie va a usar. Un PR en draft declara "todavía 
 ```yaml
 on:
   pull_request:
-    types: [opened, reopened, synchronize, ready_for_review]
+    types: [opened, reopened, synchronize, ready_for_review, converted_to_draft]
   push:
     branches: [main]          # sólo la rama por defecto
 
 jobs:
   checks:
-    if: github.event.pull_request.draft == false
+    if: github.event_name != 'pull_request' || !github.event.pull_request.draft
     runs-on: ubicloud-standard-2
 ```
 
 `ready_for_review` es imprescindible: por defecto `pull_request` no lo escucha, y sin
-él, pasar un draft a listo no dispararía nada. En el `if:`, los eventos que no son
-`pull_request` (push, schedule) tienen `draft` vacío; si el job también debe correr
-ahí, usar `github.event_name != 'pull_request' || github.event.pull_request.draft == false`.
+él, pasar un draft a listo no dispararía nada. `converted_to_draft` hace que
+`gh pr ready --undo` (R7) **cancele la corrida en curso**: llega una corrida nueva cuyos
+jobs salen todos `skipped` y, al compartir el grupo de `concurrency` (R2), cancela a la
+anterior; sin él, el PR vuelve a draft y la corrida vieja sigue facturando hasta
+terminar. (Verificado en define-dwh#231.)
+
+La condición se escribe `github.event_name != 'pull_request' || !github.event.pull_request.draft`
+y no `draft == false`: en `push` y `schedule` no hay `pull_request`, y esta forma dice sin
+ambigüedad que ahí el job corre. Si el job también tiene que ser de `closed` (limpieza),
+agregar `closed` a `types` y no filtrar ese job por draft: un PR puede pasar a draft
+después de haber corrido.
 
 ## R2. Cancelar lo obsoleto
 
@@ -100,6 +108,19 @@ cambio de docs o de un área no corra todo. Si hay checks requeridos, un job agr
 `ci-ok`, siempre presente, que sea el único required. **No usar `paths` a nivel de
 workflow con checks requeridos.**
 
+**Un solo job de verificación: sin `changes` ni `ci-ok`.** Cada uno es otro job y otro
+minuto facturado, así que no se justifican. El filtro va como **primer step** del job
+(`dorny/paths-filter` o un `git diff --name-only`) y el resto de los steps lleva
+`if: steps.f.outputs.app == 'true'`. Con un solo job, su propio nombre es el check.
+
+**Plan free y repos privados: `ci-ok` es convención, no un bloqueo.** En el plan free de
+GitHub los repos privados no tienen required checks, branch protection ni rulesets (la API
+responde 403 "Upgrade to GitHub Pro or make this repository public"; es el caso de la
+org `defineit-ar`). Nada impide mergear con el CI rojo: lo que impide es la regla para
+agentes y personas (no mergear sin el CI del último commit en verde, `gh pr checks`).
+`ci-ok` sigue sirviendo como una sola señal que mirar, y queda listo para el día en que
+el plan cambie.
+
 **Por qué:** con `paths:` a nivel workflow, si no hay coincidencia el workflow no corre
 y los checks requeridos quedan en "Expected" para siempre: el PR no se puede mergear.
 Con filtros por job, el workflow siempre corre y `ci-ok` siempre reporta.
@@ -149,9 +170,24 @@ En push a main corre sólo lo que el PR no puede garantizar: deploy, smoke,
 migraciones. Se acepta el riesgo del squash/merge. La suite completa corre por
 `schedule` una vez por día.
 
+**Excepción válida: main es la única corrida que prueba el árbol combinado.** Sin merge
+queue ni "require branches up to date" (en el plan free no existen), dos PR verdes por
+separado pueden mergear limpio y romperse juntos: ningún PR probó el árbol resultante.
+Si el repo decidió que esa corrida es la que lo atrapa, **se corre la suite completa en
+main, sin filtros de paths ni saltos, y se documenta en el workflow** (define-dwh lo hace
+y dice por qué en la cabecera de `ci.yml`). Un filtro de paths en main sería peor que
+costoso: un merge solo de docs sobre un main en rojo saldría verde y taparía el rojo. El
+ahorro se busca en lo demás (R3, R4 en PRs). Es una decisión explícita del repo, no un
+default; sin esa razón documentada, vale la regla general.
+
 **Por qué:** repetir lint, tests y build sobre el mismo árbol que ya pasó en el PR
 duplica el costo sin información nueva. El riesgo residual (un merge que combina mal
 dos PRs) lo atrapa la corrida diaria.
+
+Límite del `schedule`: corre sólo en la rama por defecto y GitHub **lo desactiva tras 60
+días sin actividad** en el repo, sin aviso. En un repo con poca actividad ese colchón
+diario puede apagarse solo; si importa, que alguien lo vea (un commit o reactivarlo a
+mano alcanza).
 
 ```yaml
 on:
@@ -228,13 +264,13 @@ gh run view <run-id> --json jobs \
 
 ## Checklist para revisar un workflow
 
-1. ¿`pull_request` incluye `ready_for_review` y los jobs filtran `draft == false`?
+1. ¿`pull_request` incluye `ready_for_review` y `converted_to_draft`, y los jobs filtran `!github.event.pull_request.draft`?
 2. ¿`push` sólo en la rama por defecto?
 3. ¿Hay `concurrency` con `cancel-in-progress` en PRs (y no en main)?
 4. ¿Hay jobs de < 2 min que podrían ser steps de otro job?
 5. ¿Cada job tiene `timeout-minutes`?
 6. ¿Hay cache de dependencias (`cache:` en setup-*)?
 7. ¿Un cambio de docs o de otra área corre todo? ¿Usa `paths` por job, no por workflow?
-8. Si hay required checks: ¿hay un único `ci-ok` con `always()`?
+8. Con varios jobs: ¿hay un único `ci-ok` con `always()`? (Con uno solo, no.)
 9. ¿En push a main sólo corre lo que el PR no garantiza?
 10. ¿La suite completa tiene `schedule` diario y `runs-on: ubicloud-standard-2`?
