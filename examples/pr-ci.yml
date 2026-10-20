@@ -1,0 +1,121 @@
+# Plantilla de referencia para copiar en `.github/workflows/ci.yml` de un repo
+# llamador. NO es un reusable workflow: los triggers (`on:`), `concurrency` y el
+# `if` de draft viven en el workflow que corre, no en el que se invoca con
+# `workflow_call`, así que no se pueden empaquetar acá. Está en `examples/` y
+# no en `.github/workflows/` a propósito, para que no corra en este repo.
+#
+# Implementa las reglas de POLITICA-CI.md:
+#   R1  PR listo, no commit: draft se saltea, push solo en la rama por defecto
+#   R2  cancelar lo obsoleto en PRs, nunca en main
+#   R3  checks cortos como steps de un mismo job
+#   R4  filtros de paths por job + job agregador `ci-ok`
+#   R5  en main solo lo que el PR no garantiza
+#   R6  timeout-minutes y cache en todo job
+#
+# Adaptar: los filtros de `paths`, los comandos de cada job y la rama por
+# defecto (acá `main`).
+
+name: CI
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize, ready_for_review]   # R1
+  push:
+    branches: [main]                                            # R1/R5: solo la rama por defecto
+  schedule:
+    - cron: "0 7 * * *"                                         # R5: suite completa 1 vez por día (04:00 ART)
+
+# R2: un grupo por PR; los PRs se cancelan entre sí, main nunca.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+
+jobs:
+  # R4: qué áreas cambiaron. Corre solo en PRs. Ojo: es un job más, o sea una VM
+  # y 1 minuto facturado (R3). Con un solo job de verificación conviene hacer
+  # el filtro como primer step de ese mismo job en lugar de este job aparte.
+  changes:
+    if: github.event_name == 'pull_request' && github.event.pull_request.draft == false
+    runs-on: ubicloud-standard-2
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read   # dorny/paths-filter lista los archivos del PR por API
+    outputs:
+      app: ${{ steps.filter.outputs.app }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            app:
+              - 'src/**'
+              - 'package.json'
+              - 'pnpm-lock.yaml'
+              - '.github/workflows/ci.yml'
+
+  # R3: lint + typecheck + tests son steps de UN job (cada uno dura < 2 min),
+  # no tres jobs que pagan tres VMs y tres minutos redondeados.
+  checks:
+    needs: changes
+    # `!cancelled()` es necesario: en push/schedule `changes` se saltea, y un job
+    # cuyo `needs` se saltea se saltea también salvo que el `if` use una función
+    # de estado.
+    if: >-
+      !cancelled() && (
+        github.event_name != 'pull_request' ||
+        (github.event.pull_request.draft == false && needs.changes.outputs.app == 'true')
+      )
+    runs-on: ubicloud-standard-2
+    timeout-minutes: 15                                          # R6
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm                                            # R6
+      - run: pnpm install --frozen-lockfile
+      - name: Lint
+        run: pnpm lint
+      - name: Typecheck
+        run: pnpm exec tsc --noEmit
+      - name: Tests
+        run: pnpm test
+
+  # R5: solo en push a main, lo que el PR no puede garantizar.
+  deploy-smoke:
+    if: github.event_name == 'push'
+    runs-on: ubicloud-standard-2
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - run: echo "deploy / smoke / migraciones acá"
+
+  # R4: único check "required" (si el repo puede exigirlos). Siempre presente
+  # cuando el PR está listo. `always()` es obligatorio: sin él, si un job del
+  # que depende falla o se saltea, ci-ok también se saltea, y un check salteado
+  # cuenta como aprobado.
+  ci-ok:
+    if: >-
+      always() &&
+      (github.event_name != 'pull_request' || github.event.pull_request.draft == false)
+    needs: [changes, checks]
+    runs-on: ubicloud-standard-2
+    timeout-minutes: 2
+    steps:
+      - name: Todos los jobs necesarios pasaron o se saltearon a propósito
+        env:
+          RESULTS: ${{ join(needs.*.result, ' ') }}
+        run: |
+          echo "resultados: $RESULTS"
+          case " $RESULTS " in
+            *" failure "*|*" cancelled "*) exit 1 ;;
+          esac

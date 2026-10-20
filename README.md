@@ -11,6 +11,11 @@ Son **dos** workflows, y están separados a propósito:
 | `nextjs-checks.yml` | `lint` + `typecheck` en paralelo → `build` | `on: push` |
 | `vercel-cli-deploy.yml` | Deploya a Vercel por CLI, autenticado con un token | `on: workflow_dispatch` |
 
+> **Política de CI:** antes de escribir o cambiar un workflow, leer
+> [`POLITICA-CI.md`](POLITICA-CI.md) (costo y tiempo de espera del CI, sobre todo con
+> agentes). Hay un workflow de referencia copiable en
+> [`examples/pr-ci.yml`](examples/pr-ci.yml).
+
 ## Por qué están separados
 
 Antes eran un solo workflow con el job de deploy colgado de los checks por
