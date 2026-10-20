@@ -14,12 +14,18 @@
 #
 # Adaptar: los filtros de `paths`, los comandos de cada job y la rama por
 # defecto (acá `main`).
+#
+# Es la variante de VARIOS jobs. Con un solo job de verificación, borrar `changes` y
+# `ci-ok`: el filtro de paths va como primer step de ese job (R4). En plan free con
+# repos privados `ci-ok` no se puede exigir (no hay required checks): es convención.
+# Si main es la única corrida que prueba el árbol combinado, correr todo en main sin
+# filtros y documentarlo (R5).
 
 name: CI
 
 on:
   pull_request:
-    types: [opened, reopened, synchronize, ready_for_review]   # R1
+    types: [opened, reopened, synchronize, ready_for_review, converted_to_draft]   # R1
   push:
     branches: [main]                                            # R1/R5: solo la rama por defecto
   schedule:
@@ -39,7 +45,7 @@ jobs:
   # y 1 minuto facturado (R3). Con un solo job de verificación conviene hacer
   # el filtro como primer step de ese mismo job en lugar de este job aparte.
   changes:
-    if: github.event_name == 'pull_request' && github.event.pull_request.draft == false
+    if: github.event_name == 'pull_request' && !github.event.pull_request.draft
     runs-on: ubicloud-standard-2
     timeout-minutes: 5
     permissions:
@@ -69,7 +75,7 @@ jobs:
     if: >-
       !cancelled() && (
         github.event_name != 'pull_request' ||
-        (github.event.pull_request.draft == false && needs.changes.outputs.app == 'true')
+        (!github.event.pull_request.draft && needs.changes.outputs.app == 'true')
       )
     runs-on: ubicloud-standard-2
     timeout-minutes: 15                                          # R6
@@ -106,7 +112,7 @@ jobs:
   ci-ok:
     if: >-
       always() &&
-      (github.event_name != 'pull_request' || github.event.pull_request.draft == false)
+      (github.event_name != 'pull_request' || !github.event.pull_request.draft)
     needs: [changes, checks]
     runs-on: ubicloud-standard-2
     timeout-minutes: 2
