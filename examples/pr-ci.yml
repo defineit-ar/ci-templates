@@ -71,7 +71,10 @@ jobs:
     needs: changes
     # `!cancelled()` es necesario: en push/schedule `changes` se saltea, y un job
     # cuyo `needs` se saltea se saltea también salvo que el `if` use una función
-    # de estado.
+    # de estado. Y es `!cancelled()` y NO `always()`: `always()` también es verdadero
+    # con la corrida cancelada y deja pasar este job por encima del
+    # `cancel-in-progress` (R2). Sólo `ci-ok` usa `always()`. Si el valor empieza con
+    # `!`, va entre `${{ }}` (o en un bloque `>-` como acá): `!` suelto es un tag YAML.
     if: >-
       !cancelled() && (
         github.event_name != 'pull_request' ||
