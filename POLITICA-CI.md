@@ -71,6 +71,18 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}   # main: nunca
 ```
 
+**Trampa: `always()` anula `cancel-in-progress`.** `always()` es verdadero también cuando
+la corrida se canceló, así que un job con `needs` e `if: always() && ...` que todavía no
+había arrancado **arranca igual** después de la cancelación y corre hasta el final. Se
+cancela el primer job y los pesados siguen facturando (medido en Emissa#150: arrancaron ~1
+min después de cancelar; en ese repo la cancelación nunca había cortado los jobs pesados).
+Regla: **los jobs de trabajo usan `if: ${{ !cancelled() && ... }}`** (corre si una
+dependencia falló o se salteó, pero no si se canceló la corrida), con `${{ }}` porque un
+`!` suelto al inicio del valor es un tag de YAML y el archivo no parsea. **Sólo el agregador
+`ci-ok` usa `always()`** (R4): es el único que tiene que reportar aun con la corrida
+cancelada. Con `always()` en un job de trabajo, la salida de emergencia es
+`gh api -X POST repos/<org>/<repo>/actions/runs/<id>/force-cancel`.
+
 ## R3. No fragmentar
 
 Los checks que duran menos de ~2 min van como **steps de un mismo job**, no como jobs
@@ -274,3 +286,4 @@ gh run view <run-id> --json jobs \
 8. Con varios jobs: ¿hay un único `ci-ok` con `always()`? (Con uno solo, no.)
 9. ¿En push a main sólo corre lo que el PR no garantiza?
 10. ¿La suite completa tiene `schedule` diario y `runs-on: ubicloud-standard-2`?
+11. ¿Ningún job de trabajo con `always()`? Usan `${{ !cancelled() && ... }}`; `always()` sólo en `ci-ok`.
