@@ -16,6 +16,17 @@ Son **dos** workflows, y están separados a propósito:
 > agentes). Hay un workflow de referencia copiable en
 > [`examples/pr-ci.yml`](examples/pr-ci.yml).
 
+## Medir el costo del CI
+
+[`scripts/ci-costo.sh`](scripts/ci-costo.sh) mide las métricas de la regla R8 de la política:
+corridas, jobs, jobs de menos de 60 s, minutos reales y facturados (Ubicloud aparte de los
+runners de GitHub), canceladas, corridas por PR y minutos por PR mergeado. Usa `gh` y `jq`.
+
+```bash
+scripts/ci-costo.sh OWNER [DIAS] [REPO...]    # DIAS=7 por defecto; sin REPO, todos los no archivados con push
+scripts/ci-costo.sh --json defineit-ar 14     # salida JSON
+```
+
 ## Por qué están separados
 
 Antes eran un solo workflow con el job de deploy colgado de los checks por

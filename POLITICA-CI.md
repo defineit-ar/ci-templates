@@ -266,6 +266,25 @@ Cuatro métricas, revisadas semanalmente:
 | Corridas canceladas | `conclusion == cancelled` | suben al aplicar R2 y es buena señal |
 | Regresiones en main | corridas rojas en main que el PR había dejado verdes | ~0 (si suben, R5 cuesta demasiado) |
 
+Las cuatro se sacan de una sola corrida de [`scripts/ci-costo.sh`](scripts/ci-costo.sh)
+(bash + `gh` + `jq`, sin dependencias nuevas):
+
+```bash
+scripts/ci-costo.sh defineit-ar                 # org, últimos 7 días, repos no archivados con push
+scripts/ci-costo.sh defineit-ar 14 Emissa inmos-api   # 14 días, solo esos repos
+scripts/ci-costo.sh --json camilo-liotta 30     # JSON, para guardar o graficar
+```
+
+Por repo y workflow muestra corridas (y por evento), jobs, jobs de menos de 60 s, minutos
+reales y facturados (`ceil(dur/60)` por job, sin los salteados) y corridas canceladas; por
+repo, corridas por PR y minutos por PR mergeado; y un total. Los minutos de `ubicloud-*`
+van separados de los de runners de GitHub, y los repos públicos se marcan `[pub]`: sus
+minutos de GitHub son gratis. Pide un run una sola vez, pero cuesta una llamada a la API
+por corrida (una org con ~500 corridas por semana tarda unos 5 minutos). Hace falta `gh`
+autenticado con acceso de lectura a Actions.
+
+Una corrida concreta, para mirar a mano:
+
 ```bash
 # jobs de una corrida con su duración
 gh run view <run-id> --json jobs \
