@@ -223,7 +223,8 @@ jobs:
 `cache:`, que en Ubicloud se vuelve transparente); `ubicloud-standard-2` por defecto.
 
 **Por qué:** un job colgado factura hasta el timeout por defecto de 6 horas. Sin cache
-cada corrida reinstala todo. Subir de tamaño de runner sólo si se mide que paga.
+cada corrida reinstala todo. Subir de tamaño de runner sólo si se mide que paga
+(ver "Tamaño de runner y paralelismo" más abajo).
 
 ```yaml
 jobs:
@@ -234,6 +235,47 @@ jobs:
       - uses: actions/setup-node@v4
         with: { node-version: 24, cache: pnpm }
 ```
+
+### Tamaño de runner y paralelismo
+
+Medido en `inmos-api` (NestJS + Prisma + Redis, ~4400 tests en vitest), 4 corridas
+completas:
+
+| Variante | Tests | Job | Facturado |
+|---|---:|---:|---|
+| standard-2 / 2 shards | 655 s | 928 s | 16 min, USD 0,032 |
+| standard-8 / 8 shards | 223–260 s | ~385–440 s | 7–8 min, USD 0,056–0,064 |
+| standard-4 / 4 shards | 306 s | 462 s | 8 min, USD 0,032 |
+
+Quedó standard-4: la mitad del tiempo al mismo costo.
+
+- **Elegir el runner con el escalado medido.** El precio de Ubicloud escala lineal con las
+  vCPU, pero una vCPU es un hilo, no un núcleo, y el escalado real depende de la suite
+  (acá, de 4 a 8 casi no bajó el tiempo y el costo subió 75-100%). Para suites de más de ~5
+  min, medir standard-4 y standard-8 antes de fijar uno y quedarse con el que dé menor
+  tiempo sin subir el costo por corrida, o subiéndolo poco. **Preferir un runner más grande
+  a una matriz de jobs:** la matriz repite el setup y redondea el minuto por job (R3).
+- **Las corridas livianas van en el runner chico.** Que un draft o una corrida de sólo docs
+  no pague la tarifa del grande:
+  `runs-on: ${{ (github.event.pull_request.draft && 'ubicloud-standard-2') || 'ubicloud-standard-4' }}`
+- **`docker run` en un step en vez de `services:`** cuando el job tiene corridas livianas:
+  los `services` se levantan siempre (~24 s), no se pueden condicionar al alcance del
+  cambio y no aceptan flags como `max_connections` sin reiniciar el contenedor.
+- **Paralelizar dentro del job** las tareas independientes (lint, typecheck, build,
+  migraciones, actionlint) cuando el runner tiene más de 2 vCPU. En inmos-api bajaron de
+  ~125 s a ~51 s. Es compatible con R3: sigue siendo un solo job.
+- **Shards con cobertura:** si los shards comparten un harness de cobertura, validar los
+  umbrales sobre la suma de los informes, no por shard (cada shard sólo ve una parte).
+- **Reuso por huella:** si el workflow se saltea la suite cuando la huella no cambió, un
+  `workflow_dispatch` de experimento tiene que desactivar el reuso; si no, se saltea la
+  suite y la medición no sirve.
+
+**Medido, no recomendado:**
+
+- `eslint --cache` con reglas type-aware (`recommendedTypeChecked`) puede dar falsos
+  verdes. Usar `--concurrency`.
+- tmpfs y `fsync=off` en Postgres no tuvieron efecto medible en inmos-api. Son opcionales
+  y no cuestan nada, pero no esperar ganancia.
 
 ## R7. Antes de pedir CI, verifica el agente
 
@@ -306,3 +348,4 @@ gh run view <run-id> --json jobs \
 9. ¿En push a main sólo corre lo que el PR no garantiza?
 10. ¿La suite completa tiene `schedule` diario y `runs-on: ubicloud-standard-2`?
 11. ¿Ningún job de trabajo con `always()`? Usan `${{ !cancelled() && ... }}`; `always()` sólo en `ci-ok`.
+12. ¿Suite de más de 5 min: se midió el runner 4 contra 8, y draft/docs corren en standard-2?
